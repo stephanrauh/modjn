@@ -28,6 +28,13 @@ public abstract class ModbusResponseHandler extends SimpleChannelInboundHandler<
         ModbusFrame frame;
         do {
             frame = responses.get(transactionIdentifier);
+            if (frame == null) {
+                try {
+                    Thread.sleep( 10 );
+                } catch( InterruptedException e ) {
+                    // not important here, so just ignore it
+                }
+            }
         } while (frame == null && (timeoutTime - System.currentTimeMillis()) > 0);
 
         if (frame != null) {
@@ -35,6 +42,7 @@ public abstract class ModbusResponseHandler extends SimpleChannelInboundHandler<
         }
 
         if (frame == null) {
+            logger.severe( "The Modbus server didn't send a response within " +  ModbusConstants.SYNC_RESPONSE_TIMEOUT + "ms. Throwing a NoResponseException now.");
             throw new NoResponseException();
         } else if (frame.getFunction() instanceof ModbusError) {
             throw new ErrorResponseException((ModbusError) frame.getFunction());
