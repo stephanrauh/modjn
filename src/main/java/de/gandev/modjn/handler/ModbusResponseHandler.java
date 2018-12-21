@@ -62,6 +62,7 @@ public abstract class ModbusResponseHandler extends SimpleChannelInboundHandler<
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, ModbusFrame response) throws Exception {
+        boolean doLog = ModbusConstants.PERFORMANCE_LOGGING_ACTIVE;
         int txid = response.getHeader().getTransactionIdentifier();
         if (!timedout.containsKey(txid)) {
             responses.put( response.getHeader().getTransactionIdentifier(), response );
@@ -71,14 +72,16 @@ public abstract class ModbusResponseHandler extends SimpleChannelInboundHandler<
         requestStartedAt.remove( txid );
         String msg = "Storing the response of the PLC in the modjn hashmap. Transaction id:" + txid + " Duration: " + duration + " ms.";
         if (timedout.containsKey(txid)) {
+            doLog = true;
             msg += " The request took too long. In the meantime, the timeout has triggered.";
             timedout.remove( txid );
         }
         if (responses.size() > 1) {
             msg+=" The hashmap now contains " + responses.size() + " entries.";
         }
-
-        logger.info(msg );
+        if (doLog) {
+            logger.info( msg );
+        }
 
     }
 
