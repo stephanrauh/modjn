@@ -105,7 +105,7 @@ public class ModbusClient {
             });
         } catch (Exception ex) {
             setConnectionState(CONNECTION_STATES.notConnected);
-            Logger.getLogger(ModbusClient.class.getName()).log(Level.SEVERE, ex.getLocalizedMessage());
+            Logger.getLogger(ModbusClient.class.getName()).log(Level.SEVERE, "Couldn't connect to the Modbus server.", ex);
 
             throw new ConnectionException(ex.getLocalizedMessage());
         }
