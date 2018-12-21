@@ -20,11 +20,14 @@ public abstract class ModbusResponseHandler extends SimpleChannelInboundHandler<
 
     private static final Logger logger = Logger.getLogger(ModbusResponseHandler.class.getSimpleName());
     private final Map<Integer, ModbusFrame> responses = new HashMap<>(ModbusConstants.TRANSACTION_IDENTIFIER_MAX);
+    private final Map<Integer, Long> requestStartedAt = new HashMap<>(ModbusConstants.TRANSACTION_IDENTIFIER_MAX);
+    private final Map<Integer, Boolean> timedout = new HashMap<>(ModbusConstants.TRANSACTION_IDENTIFIER_MAX);
 
     public ModbusFrame getResponse(int transactionIdentifier)
             throws NoResponseException, ErrorResponseException {
 
         long timeoutTime = System.currentTimeMillis() + ModbusConstants.SYNC_RESPONSE_TIMEOUT;
+        requestStartedAt.put(transactionIdentifier, System.currentTimeMillis());
         ModbusFrame frame;
         do {
             frame = responses.get(transactionIdentifier);
@@ -42,7 +45,8 @@ public abstract class ModbusResponseHandler extends SimpleChannelInboundHandler<
         }
 
         if (frame == null) {
-            logger.severe( "The Modbus server didn't send a response within " +  ModbusConstants.SYNC_RESPONSE_TIMEOUT + "ms. Throwing a NoResponseException now.");
+            logger.severe( "Missing response to request with transaction id " + transactionIdentifier + ". The Modbus server didn't send a response within " +  ModbusConstants.SYNC_RESPONSE_TIMEOUT + "ms. Throwing a NoResponseException now.");
+            timedout.put(transactionIdentifier, true);
             throw new NoResponseException();
         } else if (frame.getFunction() instanceof ModbusError) {
             throw new ErrorResponseException((ModbusError) frame.getFunction());
@@ -58,8 +62,23 @@ public abstract class ModbusResponseHandler extends SimpleChannelInboundHandler<
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, ModbusFrame response) throws Exception {
-        responses.put(response.getHeader().getTransactionIdentifier(), response);
-        newResponse(response);
+        int txid = response.getHeader().getTransactionIdentifier();
+        if (!timedout.containsKey(txid)) {
+            responses.put( response.getHeader().getTransactionIdentifier(), response );
+            newResponse(response);
+        }
+        long duration = System.currentTimeMillis() - requestStartedAt.get(txid);
+        requestStartedAt.remove( txid );
+        String msg = "Storing the response of the PLC in the modjn hashmap. Transaction id:" + txid + " Duration: " + duration + " ms.";
+        if (timedout.containsKey(txid)) {
+            msg += " The request took too long. In the meantime, the timeout has triggered.";
+            timedout.remove( txid );
+        }
+        if (responses.size() > 1) {
+            msg+=" The hashmap now contains " + responses.size() + " entries.";
+        }
+
+        logger.info(msg );
 
     }
 
