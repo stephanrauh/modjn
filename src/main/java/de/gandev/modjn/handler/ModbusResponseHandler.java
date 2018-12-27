@@ -7,7 +7,12 @@ import de.gandev.modjn.entity.exception.NoResponseException;
 import de.gandev.modjn.entity.func.ModbusError;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -22,6 +27,12 @@ public abstract class ModbusResponseHandler extends SimpleChannelInboundHandler<
     private final Map<Integer, ModbusFrame> responses = new HashMap<>(ModbusConstants.TRANSACTION_IDENTIFIER_MAX);
     private final Map<Integer, Long> requestStartedAt = new HashMap<>(ModbusConstants.TRANSACTION_IDENTIFIER_MAX);
     private final Map<Integer, Boolean> timedout = new HashMap<>(ModbusConstants.TRANSACTION_IDENTIFIER_MAX);
+
+    private static long statsTotalRequests = 0;
+    private static long statsAccumulatedTime = 0;
+    private static long statsFastestRequest = Long.MAX_VALUE;
+    private static long statsLostRequests = 0;
+    private static List<Long> statsTopTen = new ArrayList<Long>();
 
     public ModbusFrame getResponse(int transactionIdentifier)
             throws NoResponseException, ErrorResponseException {
@@ -69,12 +80,16 @@ public abstract class ModbusResponseHandler extends SimpleChannelInboundHandler<
             newResponse(response);
         }
         long duration = System.currentTimeMillis() - requestStartedAt.get(txid);
+        statistics(duration);
         requestStartedAt.remove( txid );
         String msg = "Storing the response of the PLC in the modjn hashmap. Transaction id:" + txid + " Duration: " + duration + " ms.";
         if (timedout.containsKey(txid)) {
             doLog = true;
             msg += " The request took too long. In the meantime, the timeout has triggered.";
             timedout.remove( txid );
+            synchronized( statsTopTen ) {
+                statsLostRequests++;
+            }
         }
         if (responses.size() > 1) {
             msg+=" The hashmap now contains " + responses.size() + " entries.";
@@ -86,4 +101,44 @@ public abstract class ModbusResponseHandler extends SimpleChannelInboundHandler<
     }
 
     public abstract void newResponse(ModbusFrame frame);
+
+    private void statistics(long time) {
+        if (ModbusConstants.PERFORMANCE_STATISTICS_ACTIVE) {
+            synchronized( statsTopTen ) {
+                statsAccumulatedTime += time;
+                if( time < statsFastestRequest ) {
+                    statsFastestRequest = time;
+                }
+                if( statsTopTen.size() < 10 ) {
+                    statsTopTen.add( time );
+                    Collections.sort( statsTopTen );
+                } else {
+                    if( time > statsTopTen.get( 0 ) ) {
+                        statsTopTen.set( 0, time );
+                        Collections.sort( statsTopTen );
+                    }
+                }
+                statsTotalRequests++;
+            }
+        }
+    }
+
+    public static void logStatistics() {
+        synchronized( statsTopTen ) {
+            logger.info( "Summary of the last " + statsTotalRequests + " Modbus requests:" );
+            logger.info( "Average duration: " + statsAccumulatedTime / statsTotalRequests + " ms" );
+            logger.info( "Lost requests: " + statsLostRequests );
+
+            logger.info( "Fastest request: " + statsFastestRequest + " ms" );
+            logger.info( "Slowest request: " + statsTopTen.get( statsTopTen.size() - 1 ) + " ms" );
+
+            logger.info( statsTopTen.size() + " requests took more than " + statsTopTen.get( 0 ) + " ms" );
+
+            statsTotalRequests = 0;
+            statsAccumulatedTime = 0;
+            statsFastestRequest = Long.MAX_VALUE;
+            statsLostRequests = 0;
+            statsTopTen.clear();
+        }
+}
 }

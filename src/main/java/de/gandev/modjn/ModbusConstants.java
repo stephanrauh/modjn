@@ -19,4 +19,5 @@ public class ModbusConstants {
     public static final short DEFAULT_UNIT_IDENTIFIER = 255;
 
     public static boolean PERFORMANCE_LOGGING_ACTIVE = false;
+    public static boolean PERFORMANCE_STATISTICS_ACTIVE = false;
 }
