@@ -72,7 +72,7 @@ public class ModbusServer {
             setConnectionState(CONNECTION_STATES.down);
             Logger.getLogger(ModbusServer.class.getName()).log(Level.SEVERE, ex.getLocalizedMessage());
 
-            throw new ConnectionException(ex.getLocalizedMessage());
+            throw new ConnectionException(ex.getLocalizedMessage(), null);
         }
     }
 
