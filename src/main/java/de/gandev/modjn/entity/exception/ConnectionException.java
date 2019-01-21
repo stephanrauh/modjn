@@ -21,7 +21,7 @@ package de.gandev.modjn.entity.exception;
  */
 public class ConnectionException extends Exception {
 
-    public ConnectionException(String message) {
-        super(message);
+    public ConnectionException(String message, Exception cause) {
+        super(message, cause);
     }
 }

@@ -2,6 +2,13 @@ package de.gandev.modjn;
 
 import static de.gandev.modjn.ModbusConstants.DEFAULT_PROTOCOL_IDENTIFIER;
 import static de.gandev.modjn.ModbusConstants.DEFAULT_UNIT_IDENTIFIER;
+
+import java.beans.PropertyChangeListener;
+import java.beans.PropertyChangeSupport;
+import java.util.BitSet;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import de.gandev.modjn.entity.ModbusFrame;
 import de.gandev.modjn.entity.ModbusFunction;
 import de.gandev.modjn.entity.ModbusHeader;
@@ -32,11 +39,6 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.concurrent.GenericFutureListener;
-import java.beans.PropertyChangeListener;
-import java.beans.PropertyChangeSupport;
-import java.util.BitSet;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class ModbusClient {
 
@@ -52,10 +54,10 @@ public class ModbusClient {
     private final int port;
     private int lastTransactionIdentifier = 0;
     private Channel channel;
-    private Bootstrap bootstrap;
     private short unitIdentifier;
     private short protocolIdentifier;
     private CONNECTION_STATES connectionState = CONNECTION_STATES.notConnected;
+    private EventLoopGroup workerGroup;
 
     public ModbusClient(String host, int port) {
         this(host, port, DEFAULT_UNIT_IDENTIFIER, DEFAULT_PROTOCOL_IDENTIFIER);
@@ -77,11 +79,13 @@ public class ModbusClient {
     }
 
     public void setup(ModbusResponseHandler handler) throws ConnectionException {
-        try {
-            final EventLoopGroup workerGroup = new NioEventLoopGroup();
+        close();
 
-            bootstrap = new Bootstrap();
-            bootstrap.group(workerGroup);
+        try {
+            setWorkerGroup(new NioEventLoopGroup());
+
+            Bootstrap bootstrap = new Bootstrap();
+            bootstrap.group(getWorkerGroup());
             bootstrap.channel(NioSocketChannel.class);
             bootstrap.option(ChannelOption.SO_KEEPALIVE, true);
             bootstrap.handler(new ModbusChannelInitializer(handler));
@@ -90,24 +94,33 @@ public class ModbusClient {
 
             ChannelFuture f = bootstrap.connect(host, port).sync();
 
+            Logger.getLogger(ModbusClient.class.getName()).log(Level.SEVERE, "Connection established");
+
             setConnectionState(CONNECTION_STATES.connected);
 
             channel = f.channel();
 
             channel.closeFuture().addListener(new GenericFutureListener<ChannelFuture>() {
-
                 @Override
-                public void operationComplete(ChannelFuture future) throws Exception {
-                    workerGroup.shutdownGracefully();
-
+                public void operationComplete(ChannelFuture f) throws Exception {
+                    Logger logger = Logger.getLogger(ModbusClient.class.getName());
+                    if (f.isCancelled()) {
+                        logger.log(Level.SEVERE, "Connection attempt cancelled by user");
+                    } else if (!f.isSuccess()) {
+                        logger.log(Level.SEVERE, "!f.isSuccess() " + f.cause().getLocalizedMessage());
+                    } else {
+                        logger.log(Level.SEVERE, "Connection closeed!");
+                    }
+                    setWorkerGroup(null);
                     setConnectionState(CONNECTION_STATES.notConnected);
                 }
             });
-        } catch (Exception ex) {
+        } catch (InterruptedException| RuntimeException  ex) {
             setConnectionState(CONNECTION_STATES.notConnected);
             Logger.getLogger(ModbusClient.class.getName()).log(Level.SEVERE, "Couldn't connect to the Modbus server.", ex);
 
-            throw new ConnectionException(ex.getLocalizedMessage());
+            close();
+            throw new ConnectionException(ex.getLocalizedMessage(),ex);
         }
 
     }
@@ -120,6 +133,7 @@ public class ModbusClient {
         if (channel != null) {
             channel.close().awaitUninterruptibly();
         }
+        setWorkerGroup(null);
     }
 
     private synchronized int calculateTransactionIdentifier() {
@@ -153,7 +167,7 @@ public class ModbusClient {
             throws ConnectionException {
 
         if (channel == null) {
-            throw new ConnectionException("Not connected!");
+            throw new ConnectionException("Not connected!", null);
         }
 
         int transactionId = calculateTransactionIdentifier();
@@ -169,11 +183,15 @@ public class ModbusClient {
     public <V extends ModbusFunction> V callModbusFunctionSync(ModbusFunction function)
             throws NoResponseException, ErrorResponseException, ConnectionException {
 
+        if (channel == null) {
+            throw new ConnectionException("Not connected!", null);
+        }
+
         int transactionId = callModbusFunction(function);
 
         ModbusResponseHandler handler = (ModbusResponseHandler) channel.pipeline().get("responseHandler");
         if (handler == null) {
-            throw new ConnectionException("Not connected!");
+            throw new ConnectionException("Not connected!", null);
         }
 
         //TODO handle cast exception!?
@@ -252,5 +270,16 @@ public class ModbusClient {
     public WriteMultipleRegistersResponse writeMultipleRegisters(int address, int quantityOfRegisters, int[] registers)
             throws NoResponseException, ErrorResponseException, ConnectionException {
         return this.<WriteMultipleRegistersResponse>callModbusFunctionSync(new WriteMultipleRegistersRequest(address, quantityOfRegisters, registers));
+    }
+
+    private EventLoopGroup getWorkerGroup() {
+        return workerGroup;
+    }
+
+    private void setWorkerGroup(EventLoopGroup workerGroup) {
+        if (this.workerGroup != null) {
+            this.workerGroup.shutdownGracefully();
+        }
+        this.workerGroup = workerGroup;
     }
 }
