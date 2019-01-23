@@ -94,7 +94,7 @@ public class ModbusClient {
 
             ChannelFuture f = bootstrap.connect(host, port).sync();
 
-            Logger.getLogger(ModbusClient.class.getName()).log(Level.SEVERE, "Connection established");
+            Logger.getLogger(ModbusClient.class.getName()).log(Level.INFO, "Connection established");
 
             setConnectionState(CONNECTION_STATES.connected);
 
@@ -105,17 +105,17 @@ public class ModbusClient {
                 public void operationComplete(ChannelFuture f) throws Exception {
                     Logger logger = Logger.getLogger(ModbusClient.class.getName());
                     if (f.isCancelled()) {
-                        logger.log(Level.SEVERE, "Connection attempt cancelled by user");
+                        logger.log(Level.INFO, "Connection attempt cancelled by user");
                     } else if (!f.isSuccess()) {
-                        logger.log(Level.SEVERE, "!f.isSuccess() " + f.cause().getLocalizedMessage());
+                        logger.log(Level.INFO, "!f.isSuccess() " + f.cause().getLocalizedMessage());
                     } else {
-                        logger.log(Level.SEVERE, "Connection closeed!");
+                        logger.log(Level.INFO, "Connection closed!");
                     }
                     setWorkerGroup(null);
                     setConnectionState(CONNECTION_STATES.notConnected);
                 }
             });
-        } catch (InterruptedException| RuntimeException  ex) {
+        } catch (Exception ex) {
             setConnectionState(CONNECTION_STATES.notConnected);
             Logger.getLogger(ModbusClient.class.getName()).log(Level.SEVERE, "Couldn't connect to the Modbus server.", ex);
 
